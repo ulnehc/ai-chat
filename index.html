@@ -333,7 +333,19 @@ if(role==='user'){const url=$('userAvatar').value.trim();return url?`<img src="$
 else{const url=$('aiAvatar').value.trim();return url?`<img src="${esc(url)}">`:'🤖'}
 }
 
-function deleteMessage(index){showConfirm('删除这条消息？',()=>{getMessages().splice(index,1);saveConversations();renderAllMessages()})}
+function deleteMessage(index){showConfirm('删除这条消息？',()=>{
+const msgs=getMessages();
+const m=msgs[index];
+// 如果删的是用户消息，检查前一条是不是它的时间戳，一起删
+if(m.role==='user' && index>0 && msgs[index-1].role==='system' && msgs[index-1].content.startsWith('[系统时间:')){
+msgs.splice(index-1,2); // 连时间戳一起删
+}
+// 如果删的是孤立的时间戳本身，也直接删
+else{
+msgs.splice(index,1);
+}
+saveConversations();renderAllMessages()
+})}
 function editMessage(index){const msgs=getMessages();const m=msgs[index];const nc=prompt('编辑消息：',m.content);if(nc!==null&&nc!==m.content){msgs[index].content=nc;saveConversations();renderAllMessages()}}
 
 function appendMessageDOM(role,content,imgs,index,timestamp){
