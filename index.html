@@ -253,12 +253,23 @@ const now=new Date();
 const y=now.getFullYear();
 const mo=String(now.getMonth()+1).padStart(2,'0');
 const d=String(now.getDate()).padStart(2,'0');
-const h=String(now.getHours()).padStart(2,'0');
+const h=now.getHours();
 const mi=String(now.getMinutes()).padStart(2,'0');
 const s=String(now.getSeconds()).padStart(2,'0');
 const weekDays=['星期日','星期一','星期二','星期三','星期四','星期五','星期六'];
 const w=weekDays[now.getDay()];
-return `${y}-${mo}-${d} ${h}:${mi}:${s} ${w}`;
+
+let period;
+if(h>=0 && h<5) period='凌晨';
+else if(h>=5 && h<8) period='早上';
+else if(h>=8 && h<12) period='上午';
+else if(h>=12 && h<14) period='中午';
+else if(h>=14 && h<18) period='下午';
+else if(h>=18 && h<19) period='傍晚';
+else period='晚上';
+
+const hh=String(h).padStart(2,'0');
+return `${y}-${mo}-${d} ${period}${hh}:${mi}:${s} ${w}`;
 }
 
 async function fetchModels(){
