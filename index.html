@@ -457,12 +457,31 @@ if(sys)reqMessages.push({role:'system',content:sys});
 
 const maxR=parseInt($('maxRounds').value)||50;
 const trimmed=msgs.length>maxR?msgs.slice(msgs.length-maxR):msgs;
+let pendingTime=null;
 trimmed.forEach(m=>{
-if(m.role==='user'&&m.imageUrls&&m.imageUrls.length){
-const parts=[];m.imageUrls.forEach(u=>parts.push({type:'image_url',image_url:{url:u}}));
+// 时间戳 system 消息不独立发送，暂存
+if(m.role==='system' && m.content.startsWith('[系统时间:')){
+pendingTime=m.content.replace(/^\[系统时间:\s*/,'').replace(/\]$/,'');
+return;
+}
+
+if(m.role==='user'){
+const parts=[];
+// 图片
+if(m.imageUrls&&m.imageUrls.length){
+m.imageUrls.forEach(u=>parts.push({type:'image_url',image_url:{url:u}}));
+}
+// 用户文本
 parts.push({type:'text',text:m.content});
+// 时间戳作为第二个 text part
+if(pendingTime){
+parts.push({type:'text',text:`<system_reminder>Current datetime: ${pendingTime}</system_reminder>`});
+pendingTime=null;
+}
 reqMessages.push({role:'user',content:parts});
-}else reqMessages.push({role:m.role,content:m.content});
+}else{
+reqMessages.push({role:m.role,content:m.content});
+}
 });
 
 setStreaming(true);controller=new AbortController();
