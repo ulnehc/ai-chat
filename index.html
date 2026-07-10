@@ -176,6 +176,7 @@ body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-s
 <div class="field"><label>Frequency Penalty</label><div class="slider-row"><input type="range" id="freqPenalty" min="0" max="2" step="0.1" value="0"><span class="val" id="freqVal">0</span></div></div>
 <div class="field"><label>Presence Penalty</label><div class="slider-row"><input type="range" id="presPenalty" min="0" max="2" step="0.1" value="0"><span class="val" id="presVal">0</span></div></div>
 <div class="field"><label>最大上下文轮数（超出丢弃最早的）</label><div class="slider-row"><input type="range" id="maxRounds" min="2" max="200" step="2" value="50"><span class="val" id="maxRVal">50</span></div></div>
+<div class="field"><label>🖼️ 保留最近图片轮数（更早的图片自动省略，防止请求超限）</label><div class="slider-row"><input type="range" id="imageRounds" min="1" max="20" step="1" value="5"><span class="val" id="imgRVal">5</span></div></div>
 
 <div class="toggle-row"><input type="checkbox" id="timestampEnabled"><label for="timestampEnabled" style="margin:0;font-size:12px;color:var(--text)">🕐 发送消息时插入时间戳</label></div>
 
@@ -183,7 +184,8 @@ body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-s
 <label>📷 图片发送说明</label>
 <div class="cors-hint" style="background:#0a2a1a;border-color:#266644;color:#88ddaa">
 直接 <b>Ctrl+V 粘贴</b> 或点击输入框旁 📎 上传，或拖拽到窗口。<br>
-图片会自动转 Base64 内嵌发送，<b>无需图床、绕过防盗链</b>，AI 100% 看得见。<br>
+图片会自动压缩转 Base64 内嵌发送，<b>无需图床、绕过防盗链</b>。<br>
+为避免请求过大导致失败，只有<b>最近 N 轮</b>的图片会真正发给 AI，更早的会被替换成文字占位符。<br>
 需要视觉模型（gpt-4o / claude-3.5 / gemini / qwen-vl 等）
 </div>
 </div>
@@ -246,7 +248,7 @@ let pendingImages=[]; // 待发送图片，每项是 dataURL (base64)
 let controller=null;
 let isStreaming=false;
 
-const sliders=[['temperature','tempVal'],['topP','topPVal'],['maxTokens','maxTVal'],['freqPenalty','freqVal'],['presPenalty','presVal'],['maxRounds','maxRVal']];
+const sliders=[['temperature','tempVal'],['topP','topPVal'],['maxTokens','maxTVal'],['freqPenalty','freqVal'],['presPenalty','presVal'],['maxRounds','maxRVal'],['imageRounds','imgRVal']];
 sliders.forEach(([id,v])=>$(id).addEventListener('input',()=>{$(v).textContent=$(id).value;saveSettings()}));
 $('model').addEventListener('input',()=>{$('modelTag').textContent=$('model').value||'model';saveSettings()});
 
@@ -256,7 +258,8 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').re
 function showLightbox(src){$('lightboxImg').src=src;$('lightbox').classList.remove('hidden')}
 
 // ===== 图片处理：File/Blob -> 压缩 -> base64 =====
-function fileToCompressedDataURL(file, maxSize=1600, quality=0.85){
+// 参数已调低：最长边 1024px、质量 0.7，单图体积大幅下降
+function fileToCompressedDataURL(file, maxSize=1024, quality=0.7){
   return new Promise((resolve, reject)=>{
     const reader = new FileReader();
     reader.onload = e => {
@@ -447,7 +450,7 @@ alert('获取模型失败: '+msg);btn.textContent='获取失败';setTimeout(()=>
 btn.disabled=false;
 }
 
-function saveSettings(){const s={};['apiBase','apiKey','model','temperature','topP','maxTokens','freqPenalty','presPenalty','aiAvatar','userAvatar','maxRounds','corsProxy'].forEach(k=>s[k]=$(k).value);s.timestampEnabled=$('timestampEnabled').checked;localStorage.setItem('pg_settings',JSON.stringify(s))}
+function saveSettings(){const s={};['apiBase','apiKey','model','temperature','topP','maxTokens','freqPenalty','presPenalty','aiAvatar','userAvatar','maxRounds','imageRounds','corsProxy'].forEach(k=>s[k]=$(k).value);s.timestampEnabled=$('timestampEnabled').checked;localStorage.setItem('pg_settings',JSON.stringify(s))}
 function loadSettings(){try{const s=JSON.parse(localStorage.getItem('pg_settings'));if(!s)return;Object.keys(s).forEach(k=>{if(k==='timestampEnabled'){$('timestampEnabled').checked=!!s[k]}else if($(k))$(k).value=s[k]});sliders.forEach(([id,v])=>$(v).textContent=$(id).value);$('modelTag').textContent=$('model').value||'model'}catch(e){}}
 document.querySelectorAll('.sidebar input,.sidebar select').forEach(el=>el.addEventListener('change',saveSettings));
 
@@ -606,18 +609,33 @@ if(sys)reqMessages.push({role:'system',content:sys});
 
 const maxR=parseInt($('maxRounds').value)||50;
 const trimmed=msgs.length>maxR?msgs.slice(msgs.length-maxR):msgs;
+
+// ===== 只保留最近 N 轮图片，更早的图片替换为文字占位符 =====
+// 找出 trimmed 里所有带图片的 user 消息下标，只保留最后 imgRounds 个
+const imgRounds=parseInt($('imageRounds').value)||5;
+const imgUserIdxs=[];
+trimmed.forEach((m,idx)=>{ if(m.role==='user' && m.imageUrls && m.imageUrls.length) imgUserIdxs.push(idx); });
+const keepImgSet=new Set(imgUserIdxs.slice(-imgRounds));
+
 let pendingTime=null;
-trimmed.forEach(m=>{
+trimmed.forEach((m,idx)=>{
 if(m.role==='system' && m.content.startsWith('[系统时间:')){
 pendingTime=m.content.replace(/^\[系统时间:\s*/,'').replace(/\]$/,'');
 return;
 }
 if(m.role==='user'){
+const hasImg=m.imageUrls&&m.imageUrls.length;
+const keepImg=hasImg&&keepImgSet.has(idx);
 const parts=[];
-if(m.imageUrls&&m.imageUrls.length){
+if(keepImg){
 m.imageUrls.forEach(u=>parts.push({type:'image_url',image_url:{url:u}}));
 }
-parts.push({type:'text',text:m.content});
+// 更早的图片被省略，用占位文字提示模型这里原本有图
+let textContent=m.content;
+if(hasImg && !keepImg){
+textContent=`[此处曾有 ${m.imageUrls.length} 张图片，因超出保留轮数已省略]\n`+textContent;
+}
+parts.push({type:'text',text:textContent});
 if(pendingTime){
 parts.push({type:'text',text:`<system_reminder>Current datetime: ${pendingTime}</system_reminder>`});
 pendingTime=null;
@@ -661,7 +679,18 @@ headers: buildHeaders(),
 body: requestBody,
 signal:controller.signal
 });
-if(!res.ok){const err=await res.text();throw new Error(`HTTP ${res.status}: ${err}`)}
+if(!res.ok){
+const err=await res.text();
+let hint='';
+if(res.status===413){
+hint='\n\n**请求体积过大（413）**：图片太多导致 payload 超过服务端限制。请减少本次图片数量，或调低左侧"保留最近图片轮数"。';
+}else if(res.status===400 && /token|context|length|too\s*large|maximum|payload|size/i.test(err)){
+hint='\n\n**可能是图片过多导致 token / 体积超限（400）**：请减少图片，或调低"保留最近图片轮数"，也可把图片压缩参数调得更低。';
+}else if(res.status===422){
+hint='\n\n**请求体被拒绝（422）**：可能是图片格式或体积问题，尝试减少图片数量。';
+}
+throw new Error(`HTTP ${res.status}: ${err}${hint}`);
+}
 
 const reader=res.body.getReader();const decoder=new TextDecoder();let buffer='';
 while(true){
@@ -680,7 +709,7 @@ if(delta){fullContent+=delta;bubble.innerHTML=renderMd(fullContent)+'<span style
 if(e.name==='AbortError'){
     fullContent+='\n\n*[已停止生成]*';
 } else if(e.message === 'Failed to fetch') {
-    fullContent = `❌ 请求失败: 网络错误 (Failed to fetch)\n\n**这通常是 CORS 跨域问题**，该中转站未在响应头中允许浏览器直接访问。\n\n### 解决方案：\n1. 在左侧填入 CORS 代理地址\n2. 安装 [Allow CORS](https://chromewebstore.google.com/detail/allow-cors/lhobafahddgcelffkeicbaginigeejlf) 浏览器插件`;
+    fullContent = `❌ 请求失败: 网络错误 (Failed to fetch)\n\n**这通常是 CORS 跨域问题，或请求体积过大被网关直接切断**。\n\n### 排查方向：\n1. 图片较多时，先调低左侧"保留最近图片轮数"再重试\n2. 在左侧填入 CORS 代理地址\n3. 安装 [Allow CORS](https://chromewebstore.google.com/detail/allow-cors/lhobafahddgcelffkeicbaginigeejlf) 浏览器插件`;
 } else {
     fullContent=`❌ 请求失败: ${e.message}`;
     console.error(e);
@@ -756,7 +785,7 @@ $('status').textContent='导入完成';setTimeout(()=>$('status').textContent='�
 
 async function backupAll(){
 const settings={};
-['apiBase','apiKey','model','temperature','topP','maxTokens','freqPenalty','presPenalty','aiAvatar','userAvatar','maxRounds','corsProxy'].forEach(k=>settings[k]=$(k).value);
+['apiBase','apiKey','model','temperature','topP','maxTokens','freqPenalty','presPenalty','aiAvatar','userAvatar','maxRounds','imageRounds','corsProxy'].forEach(k=>settings[k]=$(k).value);
 settings.timestampEnabled=$('timestampEnabled').checked;
 const backup={backupVersion:1,timestamp:Date.now(),settings,conversations,currentConvId};
 const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
