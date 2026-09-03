@@ -175,7 +175,7 @@ body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-s
 <div class="field"><label>Max Tokens</label><div class="slider-row"><input type="range" id="maxTokens" min="256" max="32768" step="256" value="4096"><span class="val" id="maxTVal">4096</span></div></div>
 <div class="field"><label>Frequency Penalty</label><div class="slider-row"><input type="range" id="freqPenalty" min="0" max="2" step="0.1" value="0"><span class="val" id="freqVal">0</span></div></div>
 <div class="field"><label>Presence Penalty</label><div class="slider-row"><input type="range" id="presPenalty" min="0" max="2" step="0.1" value="0"><span class="val" id="presVal">0</span></div></div>
-<div class="field"><label>最大上下文轮数（超出丢弃最早的）</label><div class="slider-row"><input type="range" id="maxRounds" min="2" max="200" step="2" value="50"><span class="val" id="maxRVal">50</span></div></div>
+<div class="field"><label>最大上下文轮数（超出丢弃最早的）</label><div class="slider-row"><input type="range" id="maxRounds" min="2" max="10000" step="10" value="1000"><span class="val" id="maxRVal">1000</span></div></div>
 <div class="field"><label>🖼️ 保留最近图片轮数（更早的图片自动省略，防止请求超限）</label><div class="slider-row"><input type="range" id="imageRounds" min="1" max="20" step="1" value="5"><span class="val" id="imgRVal">5</span></div></div>
 
 <div class="toggle-row"><input type="checkbox" id="timestampEnabled"><label for="timestampEnabled" style="margin:0;font-size:12px;color:var(--text)">🕐 发送消息时插入时间戳</label></div>
